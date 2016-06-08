@@ -70,6 +70,15 @@ config KVM_INTEL
 	  To compile this as a module, choose M here: the module
 	  will be called kvm-intel.
 
+config KVM_VMCSCTL
+	bool "Expose Intel VMCS fields to sysfs"
+	depends on KVM_INTEL
+	default y
+	---help---
+	  Expose all Intel Virtual Machine Control Structures to sysfs.
+	  They will be displayed under /sys/kernel/vmcsctl and identified by the
+	  PID of the process which owns them.
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM
