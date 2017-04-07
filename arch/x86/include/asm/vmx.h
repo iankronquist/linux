@@ -499,6 +499,12 @@ struct vmx_msr_entry {
 	u64 value;
 } __aligned(16);
 
+struct vmcs {
+	u32 revision_id;
+	u32 abort;
+	char data[0];
+};
+
 /*
  * Exit Qualifications for entry failure during or after loading guest state
  */

@@ -36,6 +36,11 @@
 #include "kvm_cache_regs.h"
 #include "x86.h"
 
+#define VMCSCTL
+#ifdef VMCSCTL
+#include "vmcsctl.h"
+#endif
+
 #include <asm/cpu.h>
 #include <asm/io.h>
 #include <asm/desc.h>
@@ -183,12 +188,6 @@ extern const ulong vmx_return;
 
 #define NR_AUTOLOAD_MSRS 8
 #define VMCS02_POOL_SIZE 1
-
-struct vmcs {
-	u32 revision_id;
-	u32 abort;
-	char data[0];
-};
 
 /*
  * Track a VMCS that may be loaded on a certain CPU. If it is (cpu!=-1), also
@@ -3729,6 +3728,11 @@ static struct vmcs *alloc_vmcs_cpu(int cpu)
 	vmcs = page_address(pages);
 	memset(vmcs, 0, vmcs_config.size);
 	vmcs->revision_id = vmcs_config.revision_id; /* vmcs revision id */
+
+#ifdef VMCSCTL
+	vmcsctl_register(vmcs);
+#endif
+
 	return vmcs;
 }
 
@@ -3739,6 +3743,9 @@ static struct vmcs *alloc_vmcs(void)
 
 static void free_vmcs(struct vmcs *vmcs)
 {
+#ifdef VMCSCTL
+	vmcsctl_unregister(vmcs);
+#endif
 	free_pages((unsigned long)vmcs, vmcs_config.order);
 }
 
@@ -3799,6 +3806,7 @@ static void init_vmcs_shadow_fields(void)
 		clear_bit(shadow_read_only_fields[i],
 			  vmx_vmread_bitmap);
 }
+
 
 static __init int alloc_kvm_area(void)
 {
