@@ -36,6 +36,10 @@
 #include "kvm_cache_regs.h"
 #include "x86.h"
 
+#ifdef CONFIG_KVM_VMCSCTL
+#include "vmcsctl.h"
+#endif
+
 #include <asm/cpu.h>
 #include <asm/io.h>
 #include <asm/desc.h>
@@ -51,10 +55,6 @@
 
 #include "trace.h"
 #include "pmu.h"
-
-#define __ex(x) __kvm_handle_fault_on_reboot(x)
-#define __ex_clear(x, reg) \
-	____kvm_handle_fault_on_reboot(x, "xor " reg " , " reg)
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -183,12 +183,6 @@ extern const ulong vmx_return;
 
 #define NR_AUTOLOAD_MSRS 8
 #define VMCS02_POOL_SIZE 1
-
-struct vmcs {
-	u32 revision_id;
-	u32 abort;
-	char data[0];
-};
 
 /*
  * Track a VMCS that may be loaded on a certain CPU. If it is (cpu!=-1), also
@@ -1469,7 +1463,7 @@ static inline void loaded_vmcs_init(struct loaded_vmcs *loaded_vmcs)
 	loaded_vmcs->launched = 0;
 }
 
-static void vmcs_load(struct vmcs *vmcs)
+void vmcs_load(struct vmcs *vmcs)
 {
 	u64 phys_addr = __pa(vmcs);
 	u8 error;
@@ -1480,6 +1474,19 @@ static void vmcs_load(struct vmcs *vmcs)
 	if (error)
 		printk(KERN_ERR "kvm: vmptrld %p/%llx failed\n",
 		       vmcs, phys_addr);
+}
+
+struct vmcs *vmcs_store(void)
+{
+	struct vmcs *vmcs;
+	u64 phys_addr;
+
+	asm volatile (__ex(ASM_VMX_VMPTRST_RAX)
+			: : "a"(&phys_addr)
+			: "memory");
+
+	vmcs = __va(phys_addr);
+	return vmcs;
 }
 
 #ifdef CONFIG_KEXEC_CORE
@@ -1594,130 +1601,11 @@ static inline void ept_sync_context(u64 eptp)
 	}
 }
 
-static __always_inline void vmcs_check16(unsigned long field)
-{
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2000,
-			 "16-bit accessor invalid for 64-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
-			 "16-bit accessor invalid for 64-bit high field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
-			 "16-bit accessor invalid for 32-bit high field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
-			 "16-bit accessor invalid for natural width field");
-}
-
-static __always_inline void vmcs_check32(unsigned long field)
-{
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
-			 "32-bit accessor invalid for 16-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
-			 "32-bit accessor invalid for natural width field");
-}
-
-static __always_inline void vmcs_check64(unsigned long field)
-{
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
-			 "64-bit accessor invalid for 16-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
-			 "64-bit accessor invalid for 64-bit high field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
-			 "64-bit accessor invalid for 32-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
-			 "64-bit accessor invalid for natural width field");
-}
-
-static __always_inline void vmcs_checkl(unsigned long field)
-{
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
-			 "Natural width accessor invalid for 16-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2000,
-			 "Natural width accessor invalid for 64-bit field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
-			 "Natural width accessor invalid for 64-bit high field");
-        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
-			 "Natural width accessor invalid for 32-bit field");
-}
-
-static __always_inline unsigned long __vmcs_readl(unsigned long field)
-{
-	unsigned long value;
-
-	asm volatile (__ex_clear(ASM_VMX_VMREAD_RDX_RAX, "%0")
-		      : "=a"(value) : "d"(field) : "cc");
-	return value;
-}
-
-static __always_inline u16 vmcs_read16(unsigned long field)
-{
-	vmcs_check16(field);
-	return __vmcs_readl(field);
-}
-
-static __always_inline u32 vmcs_read32(unsigned long field)
-{
-	vmcs_check32(field);
-	return __vmcs_readl(field);
-}
-
-static __always_inline u64 vmcs_read64(unsigned long field)
-{
-	vmcs_check64(field);
-#ifdef CONFIG_X86_64
-	return __vmcs_readl(field);
-#else
-	return __vmcs_readl(field) | ((u64)__vmcs_readl(field+1) << 32);
-#endif
-}
-
-static __always_inline unsigned long vmcs_readl(unsigned long field)
-{
-	vmcs_checkl(field);
-	return __vmcs_readl(field);
-}
-
-static noinline void vmwrite_error(unsigned long field, unsigned long value)
+noinline void vmwrite_error(unsigned long field, unsigned long value)
 {
 	printk(KERN_ERR "vmwrite error: reg %lx value %lx (err %d)\n",
 	       field, value, vmcs_read32(VM_INSTRUCTION_ERROR));
 	dump_stack();
-}
-
-static __always_inline void __vmcs_writel(unsigned long field, unsigned long value)
-{
-	u8 error;
-
-	asm volatile (__ex(ASM_VMX_VMWRITE_RAX_RDX) "; setna %0"
-		       : "=q"(error) : "a"(value), "d"(field) : "cc");
-	if (unlikely(error))
-		vmwrite_error(field, value);
-}
-
-static __always_inline void vmcs_write16(unsigned long field, u16 value)
-{
-	vmcs_check16(field);
-	__vmcs_writel(field, value);
-}
-
-static __always_inline void vmcs_write32(unsigned long field, u32 value)
-{
-	vmcs_check32(field);
-	__vmcs_writel(field, value);
-}
-
-static __always_inline void vmcs_write64(unsigned long field, u64 value)
-{
-	vmcs_check64(field);
-	__vmcs_writel(field, value);
-#ifndef CONFIG_X86_64
-	asm volatile ("");
-	__vmcs_writel(field+1, value >> 32);
-#endif
-}
-
-static __always_inline void vmcs_writel(unsigned long field, unsigned long value)
-{
-	vmcs_checkl(field);
-	__vmcs_writel(field, value);
 }
 
 static __always_inline void vmcs_clear_bits(unsigned long field, u32 mask)
@@ -3427,6 +3315,10 @@ static void kvm_cpu_vmxon(u64 addr)
 	asm volatile (ASM_VMX_VMXON_RAX
 			: : "a"(&addr), "m"(addr)
 			: "memory", "cc");
+
+#ifdef CONFIG_KVM_VMCSCTL
+	vmcsctl_vmxon();
+#endif
 }
 
 static int hardware_enable(void)
@@ -3495,6 +3387,10 @@ static void kvm_cpu_vmxoff(void)
 	asm volatile (__ex(ASM_VMX_VMXOFF) : : : "cc");
 
 	intel_pt_handle_vmx(0);
+
+#ifdef CONFIG_KVM_VMCSCTL
+	vmcsctl_vmxoff();
+#endif
 }
 
 static void hardware_disable(void)
@@ -3729,6 +3625,11 @@ static struct vmcs *alloc_vmcs_cpu(int cpu)
 	vmcs = page_address(pages);
 	memset(vmcs, 0, vmcs_config.size);
 	vmcs->revision_id = vmcs_config.revision_id; /* vmcs revision id */
+
+#ifdef CONFIG_KVM_VMCSCTL
+	vmcsctl_register(vmcs);
+#endif
+
 	return vmcs;
 }
 
@@ -3739,6 +3640,9 @@ static struct vmcs *alloc_vmcs(void)
 
 static void free_vmcs(struct vmcs *vmcs)
 {
+#ifdef CONFIG_KVM_VMCSCTL
+	vmcsctl_unregister(vmcs);
+#endif
 	free_pages((unsigned long)vmcs, vmcs_config.order);
 }
 
@@ -3799,6 +3703,7 @@ static void init_vmcs_shadow_fields(void)
 		clear_bit(shadow_read_only_fields[i],
 			  vmx_vmread_bitmap);
 }
+
 
 static __init int alloc_kvm_area(void)
 {

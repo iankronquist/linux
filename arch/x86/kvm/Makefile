@@ -22,4 +22,5 @@ kvm-amd-y		+= svm.o pmu_amd.o
 
 obj-$(CONFIG_KVM)	+= kvm.o
 obj-$(CONFIG_KVM_INTEL)	+= kvm-intel.o
+obj-$(CONFIG_KVM_VMCSCTL)	+= vmcsctl.o
 obj-$(CONFIG_KVM_AMD)	+= kvm-amd.o
