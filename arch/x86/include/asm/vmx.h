@@ -25,9 +25,14 @@
 #define VMX_H
 
 
+#include <linux/kvm_host.h>
 #include <linux/bitops.h>
 #include <linux/types.h>
 #include <uapi/asm/vmx.h>
+
+#define __ex(x) __kvm_handle_fault_on_reboot(x)
+#define __ex_clear(x, reg) \
+	____kvm_handle_fault_on_reboot(x, "xor " reg " , " reg)
 
 /*
  * Definitions of Primary Processor-Based VM-Execution Controls.
@@ -111,6 +116,8 @@
 #define VMX_MISC_PREEMPTION_TIMER_RATE_MASK	0x0000001f
 #define VMX_MISC_SAVE_EFER_LMA			0x00000020
 #define VMX_MISC_ACTIVITY_HLT			0x00000040
+
+noinline void vmwrite_error(unsigned long field, unsigned long value);
 
 static inline u32 vmx_basic_vmcs_revision_id(u64 vmx_basic)
 {
@@ -559,5 +566,124 @@ enum vm_instruction_error_number {
 	VMXERR_ENTRY_EVENTS_BLOCKED_BY_MOV_SS = 26,
 	VMXERR_INVALID_OPERAND_TO_INVEPT_INVVPID = 28,
 };
+
+static __always_inline void vmcs_check16(unsigned long field)
+{
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2000,
+			 "16-bit accessor invalid for 64-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
+			 "16-bit accessor invalid for 64-bit high field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
+			 "16-bit accessor invalid for 32-bit high field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
+			 "16-bit accessor invalid for natural width field");
+}
+
+static __always_inline void vmcs_check32(unsigned long field)
+{
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
+			 "32-bit accessor invalid for 16-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
+			 "32-bit accessor invalid for natural width field");
+}
+
+static __always_inline void vmcs_check64(unsigned long field)
+{
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
+			 "64-bit accessor invalid for 16-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
+			 "64-bit accessor invalid for 64-bit high field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
+			 "64-bit accessor invalid for 32-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x6000,
+			 "64-bit accessor invalid for natural width field");
+}
+
+static __always_inline void vmcs_checkl(unsigned long field)
+{
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0,
+			 "Natural width accessor invalid for 16-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2000,
+			 "Natural width accessor invalid for 64-bit field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6001) == 0x2001,
+			 "Natural width accessor invalid for 64-bit high field");
+        BUILD_BUG_ON_MSG(__builtin_constant_p(field) && ((field) & 0x6000) == 0x4000,
+			 "Natural width accessor invalid for 32-bit field");
+}
+
+static __always_inline unsigned long __vmcs_readl(unsigned long field)
+{
+	unsigned long value;
+
+	asm volatile (__ex_clear(ASM_VMX_VMREAD_RDX_RAX, "%0")
+		      : "=a"(value) : "d"(field) : "cc");
+	return value;
+}
+
+static __always_inline u16 vmcs_read16(unsigned long field)
+{
+	vmcs_check16(field);
+	return __vmcs_readl(field);
+}
+
+static __always_inline u32 vmcs_read32(unsigned long field)
+{
+	vmcs_check32(field);
+	return __vmcs_readl(field);
+}
+
+static __always_inline u64 vmcs_read64(unsigned long field)
+{
+	vmcs_check64(field);
+#ifdef CONFIG_X86_64
+	return __vmcs_readl(field);
+#else
+	return __vmcs_readl(field) | ((u64)__vmcs_readl(field+1) << 32);
+#endif
+}
+
+static __always_inline unsigned long vmcs_readl(unsigned long field)
+{
+	vmcs_checkl(field);
+	return __vmcs_readl(field);
+}
+
+static __always_inline void __vmcs_writel(unsigned long field, unsigned long value)
+{
+	u8 error;
+
+	asm volatile (__ex(ASM_VMX_VMWRITE_RAX_RDX) "; setna %0"
+		       : "=q"(error) : "a"(value), "d"(field) : "cc");
+	if (unlikely(error))
+		vmwrite_error(field, value);
+}
+
+static __always_inline void vmcs_writel(unsigned long field, unsigned long value)
+{
+	vmcs_checkl(field);
+	__vmcs_writel(field, value);
+}
+
+static __always_inline void vmcs_write16(unsigned long field, u16 value)
+{
+	vmcs_check16(field);
+	__vmcs_writel(field, value);
+}
+
+static __always_inline void vmcs_write32(unsigned long field, u32 value)
+{
+	vmcs_check32(field);
+	__vmcs_writel(field, value);
+}
+
+static __always_inline void vmcs_write64(unsigned long field, u64 value)
+{
+	vmcs_check64(field);
+	__vmcs_writel(field, value);
+#ifndef CONFIG_X86_64
+	asm volatile ("");
+	__vmcs_writel(field+1, value >> 32);
+#endif
+}
 
 #endif
