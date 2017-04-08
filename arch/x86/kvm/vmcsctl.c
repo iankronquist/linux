@@ -37,9 +37,11 @@ static ssize_t abort_show(struct kobject *kobj,
 static ssize_t vmcs_field_show_u16(struct kobject *kobj,
 	struct kobj_attribute *attr, char *buf, enum vmcs_field field)
 {
+	u16 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	return sprintf(buf, "%hu\n", vmcsctl->vmcs->data[field]);
+	value = vmcs_read16(field);
+	return sprintf(buf, "%hu\n", value);
 }
 
 static ssize_t vmcs_field_store_u16(struct kobject *kobj,
@@ -47,21 +49,27 @@ static ssize_t vmcs_field_store_u16(struct kobject *kobj,
 	enum vmcs_field field)
 {
 	int ret;
+	u16 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	ret = kstrtou16(buf, 10, (u16*)&vmcsctl->vmcs->data[field]);
-	if (ret < 0)
+	ret = kstrtou16(buf, 10, &value);
+	if (ret < 0) {
 		return ret;
-	else
+	}
+	else {
+		vmcs_write16(field, value);
 		return count;
+	}
 }
 
 static ssize_t vmcs_field_show_u32(struct kobject *kobj,
 	struct kobj_attribute *attr, char *buf, enum vmcs_field field)
 {
+	u32 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	return sprintf(buf, "%u\n", vmcsctl->vmcs->data[field]);
+	value = vmcs_read32(field);
+	return sprintf(buf, "%u\n", value);
 }
 
 static ssize_t vmcs_field_store_u32(struct kobject *kobj,
@@ -69,21 +77,27 @@ static ssize_t vmcs_field_store_u32(struct kobject *kobj,
 	enum vmcs_field field)
 {
 	int ret;
+	u32 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	ret = kstrtoint(buf, 10, (u32*)&vmcsctl->vmcs->data[field]);
-	if (ret < 0)
+	ret = kstrtoint(buf, 10, &value);
+	if (ret < 0) {
 		return ret;
-	else
+	}
+	else {
+		vmcs_write32(field, value);
 		return count;
+	}
 }
 
 static ssize_t vmcs_field_show_u64(struct kobject *kobj,
 	struct kobj_attribute *attr, char *buf, enum vmcs_field field)
 {
+	u64 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	return sprintf(buf, "%llu\n", (u64)vmcsctl->vmcs->data[field]);
+	value = vmcs_read64(field);
+	return sprintf(buf, "%llu\n", value);
 }
 
 static ssize_t vmcs_field_store_u64(struct kobject *kobj,
@@ -91,13 +105,17 @@ static ssize_t vmcs_field_store_u64(struct kobject *kobj,
 	enum vmcs_field field)
 {
 	int ret;
+	u64 value;
 	struct vmcsctl *vmcsctl = vmcsctl_container_of(kobj);
 	BUG_ON(vmcsctl->vmcs == NULL);
-	ret = kstrtoll(buf, 10, (u64*)&vmcsctl->vmcs->data[field]);
-	if (ret < 0)
+	ret = kstrtoll(buf, 10, &value);
+	if (ret < 0) {
 		return ret;
-	else
+	}
+	else {
+		vmcs_write64(field, value);
 		return count;
+	}
 }
 
 
