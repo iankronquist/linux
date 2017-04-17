@@ -1,6 +1,7 @@
 #include "vmcsctl.h"
 
 static struct kset *vmcsctl_set;
+static bool vmxon = false;
 
 static inline struct vmcsctl *vmcsctl_container_of(struct kobject *kobj)
 {
@@ -129,14 +130,22 @@ static ssize_t vmcs_field_store_u64(struct kobject *kobj,
 static ssize_t vmcs_##attr_field##_show(struct kobject *kobj, \
 		struct kobj_attribute *attr, char *buf) \
 { \
-	return vmcs_field_show_##type(kobj, attr, buf, attr_field); \
+	if (vmxon) { \
+		return vmcs_field_show_##type(kobj, attr, buf, attr_field); \
+	} else { \
+		return -1; \
+	} \
 }
 
 #define VMCS_ATTR_STORE(attr_field, type) \
 static ssize_t vmcs_##attr_field##_store(struct kobject *kobj, \
 		struct kobj_attribute *attr, const char *buf, size_t count) \
 { \
-	return vmcs_field_store_##type(kobj, attr, buf, count, attr_field); \
+	if (vmxon) { \
+		return vmcs_field_store_##type(kobj, attr, buf, count, attr_field); \
+	} else { \
+		return -1; \
+	}\
 }
 
 #define VMCS_ATTR(attr_field, type) \
@@ -572,6 +581,16 @@ void vmcsctl_unregister(struct vmcs *vmcs)
 			return;
 		}
 	}
+}
+
+void vmcsctl_vmxon(void)
+{
+	vmxon = true;
+}
+
+void vmcsctl_vmxoff(void)
+{
+	vmxon = false;
 }
 
 static int __init vmcsctl_init(void)

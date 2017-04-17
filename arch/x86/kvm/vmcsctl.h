@@ -20,4 +20,8 @@ struct vmcsctl {
 int vmcsctl_register(struct vmcs *vmcs);
 
 void vmcsctl_unregister(struct vmcs *vmcs);
+
+void vmcsctl_vmxon(void);
+
+void vmcsctl_vmxoff(void);
 #endif
