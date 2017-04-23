@@ -69,6 +69,16 @@ config KVM_INTEL
 	  To compile this as a module, choose M here: the module
 	  will be called kvm-intel.
 
+config KVM_VMCSCTL
+	bool "Expose the VMCS to sysfs"
+	depends on KVM
+	depends on KVM_INTEL
+	default n
+	---help---
+	  Adds entries to the sysfs which allows virtual machine state to be
+	  manipulated from userland.
+
+
 config KVM_AMD
 	tristate "KVM for AMD processors support"
 	depends on KVM

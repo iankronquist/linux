@@ -36,8 +36,7 @@
 #include "kvm_cache_regs.h"
 #include "x86.h"
 
-#define VMCSCTL
-#ifdef VMCSCTL
+#ifdef CONFIG_KVM_VMCSCTL
 #include "vmcsctl.h"
 #endif
 
@@ -3304,7 +3303,7 @@ static void kvm_cpu_vmxon(u64 addr)
 			: : "a"(&addr), "m"(addr)
 			: "memory", "cc");
 
-#ifdef VMCSCTL
+#ifdef CONFIG_KVM_VMCSCTL
 	vmcsctl_vmxon();
 #endif
 }
@@ -3376,7 +3375,7 @@ static void kvm_cpu_vmxoff(void)
 
 	intel_pt_handle_vmx(0);
 
-#ifdef VMCSCTL
+#ifdef CONFIG_KVM_VMCSCTL
 	vmcsctl_vmxoff();
 #endif
 }
@@ -3614,7 +3613,7 @@ static struct vmcs *alloc_vmcs_cpu(int cpu)
 	memset(vmcs, 0, vmcs_config.size);
 	vmcs->revision_id = vmcs_config.revision_id; /* vmcs revision id */
 
-#ifdef VMCSCTL
+#ifdef CONFIG_KVM_VMCSCTL
 	vmcsctl_register(vmcs);
 #endif
 
@@ -3628,7 +3627,7 @@ static struct vmcs *alloc_vmcs(void)
 
 static void free_vmcs(struct vmcs *vmcs)
 {
-#ifdef VMCSCTL
+#ifdef CONFIG_KVM_VMCSCTL
 	vmcsctl_unregister(vmcs);
 #endif
 	free_pages((unsigned long)vmcs, vmcs_config.order);
